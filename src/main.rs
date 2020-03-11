@@ -4,7 +4,10 @@ use std::{fs, io, env};
 ///
 /// This contains all parsed options passed to this command
 struct Config {
-    directories: Vec<String>
+    /// The list of all directories to ls
+    directories: Vec<String>,
+    /// Determines if the name of the currently ls'ed directory should be displayed before the contents
+    show_directory_name: bool
 }
 
 impl Config {
@@ -18,12 +21,13 @@ impl Config {
             directories.push(directory);
         }
 
-        // If no option has been passed, use the current directory
+        // If no directory has been passed, use the current directory
         if directories.len() == 0 {
             directories.push(".".to_string())
         }
 
         Config {
+            show_directory_name: directories.len() > 1,
             directories
         }
     }
@@ -46,7 +50,6 @@ fn is_dotfile(entry: &fs::DirEntry) -> bool {
 }
 
 fn read_directory(current_directory: &String, _config: &Config) -> io::Result<()> {
-
     match fs::metadata(current_directory) {
         Ok(metadata) if metadata.is_file() => {
             println!("{}", &current_directory);
@@ -81,18 +84,16 @@ fn read_directory(current_directory: &String, _config: &Config) -> io::Result<()
     Ok(())
 }
 
-fn main() -> io::Result<()> {
+fn main() {
     let config = Config::new(env::args());
 
-    if config.directories.len() == 1 {
-        return read_directory(&config.directories[0], &config);
-    }
-
     for directory in &config.directories {
-        println!("{}:", directory);
+        if config.show_directory_name {
+            println!("{}:", directory);
+        }
+
         if let Err(e) = read_directory(directory, &config) {
             eprintln!("ls: {}: {}", directory, e);
         }
     }
-    Ok(())
 }
