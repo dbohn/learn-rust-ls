@@ -1,10 +1,10 @@
-use std::{fs, io, env, process};
+use std::{fs, io, env};
 
 /// Parsed representation of the call configuration
 ///
 /// This contains all parsed options passed to this command
 struct Config {
-    directory: String
+    directories: Vec<String>
 }
 
 impl Config {
@@ -12,13 +12,19 @@ impl Config {
         // Skip application name
         args.next();
 
-        let directory = match args.next() {
-            Some(arg) => arg,
-            None => ".".to_string()
-        };
+        let mut directories: Vec<String> = Vec::new();
+
+        while let Some(directory) = args.next() {
+            directories.push(directory);
+        }
+
+        // If no option has been passed, use the current directory
+        if directories.len() == 0 {
+            directories.push(".".to_string())
+        }
 
         Config {
-            directory
+            directories
         }
     }
 }
@@ -34,14 +40,28 @@ fn display_file_list(entries: &Vec<fs::DirEntry>) {
     }
 }
 
+/// Check if the given Dir Entry is a dotfile, which are hidden by default
 fn is_dotfile(entry: &fs::DirEntry) -> bool {
     entry.file_name().to_str().map(|s| s.starts_with(".")).unwrap_or(false)
 }
 
-fn read_directory(config: &Config) -> io::Result<()> {
-    let mut entries = fs::read_dir(&config.directory)?
+fn read_directory(current_directory: &String, _config: &Config) -> io::Result<()> {
+
+    match fs::metadata(current_directory) {
+        Ok(metadata) if metadata.is_file() => {
+            println!("{}", &current_directory);
+            return Ok(())
+        },
+        Err(err) => {
+            // ls skips these directories, but continues operation
+            return Err(err)
+        },
+        _ => true
+    };
+
+    let mut entries = fs::read_dir(current_directory)?
         .filter_map(|entry| entry.ok())
-        .filter(|entry| !is_dotfile(entry))
+        .filter(|entry| !is_dotfile(&entry))
         .collect::<Vec<fs::DirEntry>>();
 
     // Sort entries by path for lexicographical ordering
@@ -64,15 +84,15 @@ fn read_directory(config: &Config) -> io::Result<()> {
 fn main() -> io::Result<()> {
     let config = Config::new(env::args());
 
-    let parent_metadata = fs::metadata(&config.directory).unwrap_or_else(|err| {
-        eprintln!("ls: {}: {}", &config.directory, err);
-        process::exit(1);
-    });
-
-    if parent_metadata.is_file() {
-        println!("{}", &config.directory);
-        process::exit(1);
+    if config.directories.len() == 1 {
+        return read_directory(&config.directories[0], &config);
     }
 
-    read_directory(&config)
+    for directory in &config.directories {
+        println!("{}:", directory);
+        if let Err(e) = read_directory(directory, &config) {
+            eprintln!("ls: {}: {}", directory, e);
+        }
+    }
+    Ok(())
 }
