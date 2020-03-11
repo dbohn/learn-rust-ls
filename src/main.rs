@@ -34,17 +34,22 @@ fn display_file_list(entries: &Vec<fs::DirEntry>) {
     }
 }
 
+fn is_dotfile(entry: &fs::DirEntry) -> bool {
+    entry.file_name().to_str().map(|s| s.starts_with(".")).unwrap_or(false)
+}
+
 fn read_directory(config: &Config) -> io::Result<()> {
     let mut entries = fs::read_dir(&config.directory)?
-        .filter(|entry| entry.is_ok())
-        .collect::<Result<Vec<fs::DirEntry>, io::Error>>()?;
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| !is_dotfile(entry))
+        .collect::<Vec<fs::DirEntry>>();
 
     // Sort entries by path for lexicographical ordering
     entries.sort_by(|a, b| a.path().cmp(&b.path()));
 
     // Split into directories and files
     let (dirs, files): (Vec<fs::DirEntry>, Vec<fs::DirEntry>) = entries.drain(..)
-        .partition(|entry| entry.metadata().unwrap().is_dir());
+        .partition(|entry| entry.path().is_dir());
 
     assert_eq!(entries.len(), 0);
 
