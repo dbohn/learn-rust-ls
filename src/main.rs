@@ -61,7 +61,7 @@ impl Config {
 
 fn get_block_size(entry: &fs::DirEntry) -> u64 {
     if let Ok(metadata) = entry.metadata() {
-        return metadata.blocks();
+        metadata.blocks()
     } else {
         0
     }
@@ -82,23 +82,44 @@ fn display_file_list(entries: &Vec<fs::DirEntry>) {
     }
 }
 
+fn output_long_list_item(path: std::path::PathBuf, metadata: fs::Metadata) {
+    let mode = metadata.permissions().mode();
+
+    let filename = match path.file_name() {
+        Some(name) => name.to_os_string().into_string().unwrap_or("".to_string()),
+        None => "".to_string()
+    };
+
+    if let Ok(link) = path.read_link() {
+        println!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{} -> {}",
+            stringify_mode(mode),
+            metadata.nlink(),
+            metadata.uid(),
+            metadata.gid(),
+            metadata.len(),
+            stringify_date(metadata.modified()),
+            filename,
+            link.display()
+        )
+    } else {
+        println!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            stringify_mode(mode),
+            metadata.nlink(),
+            metadata.uid(),
+            metadata.gid(),
+            metadata.len(),
+            stringify_date(metadata.modified()),
+            filename
+        );
+    }
+}
+
 fn display_long_file_list(entries: &Vec<fs::DirEntry>) {
     for entry in entries {
-        if let Ok(filename) = entry.file_name().into_string() {
-            if let Ok(metadata) = entry.metadata() {
-                let permissions = metadata.permissions();
-
-                println!(
-                    "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-                    stringify_mode(permissions.mode()),
-                    metadata.nlink(),
-                    metadata.uid(),
-                    metadata.gid(),
-                    metadata.len(),
-                    stringify_date(metadata.modified()),
-                    filename
-                );
-            }
+        if let Ok(metadata) = entry.metadata() {
+            output_long_list_item(entry.path(), metadata);
         }
     }
 }
@@ -141,7 +162,7 @@ fn stringify_mode(mode: u32) -> String {
         output.push_str(if permissions & 0b001u32 > 0u32 {"x"} else {"-"});
     }
 
-    return format!("{}{}", filetype, output)
+    format!("{}{}", filetype, output)
 }
 
 /// Check if the given Dir Entry is a dotfile, which are hidden by default
