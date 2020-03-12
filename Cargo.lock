@@ -28,6 +28,7 @@ name = "ls"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "users",
 ]
 
 [[package]]
@@ -64,6 +65,15 @@ dependencies = [
  "libc",
  "redox_syscall",
  "winapi",
+]
+
+[[package]]
+name = "users"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c72f4267aea0c3ec6d07eaabea6ead7c5ddacfafc5e22bcf8d186706851fb4cf"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

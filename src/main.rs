@@ -1,22 +1,12 @@
 extern crate chrono;
+extern crate users;
 
-use chrono::offset::Utc;
-use chrono::DateTime;
+mod util;
+
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::time::SystemTime;
 use std::{env, fs, io};
-
-/// POSIX mask to get the file type from the st_mode field
-const S_IFMT: u32 = 0o170000;
-
-// st_mode values
-const S_IFSOCK: u32 = 0o140000;
-const S_IFLNK: u32 = 0o120000;
-const S_IFREG: u32 = 0o100000;
-const S_IFBLK: u32 = 0o060000;
-const S_IFDIR: u32 = 0o040000;
-const S_IFCHR: u32 = 0o020000;
-const S_IFIFO: u32 = 0o010000;
+use std::collections::BTreeMap;
 
 /// Parsed representation of the call configuration
 ///
@@ -59,6 +49,90 @@ impl Config {
     }
 }
 
+struct ListOutput {
+    users: BTreeMap<u32, String>,
+    groups: BTreeMap<u32, String>
+}
+
+impl ListOutput {
+
+    fn new() -> ListOutput {
+        ListOutput {
+            users: BTreeMap::new(),
+            groups: BTreeMap::new(),
+        }
+    }
+
+    fn resolve_user(uid: u32) -> String {
+        if let Some(user) = users::get_user_by_uid(uid) {
+            user.name().to_os_string().to_string_lossy().to_string()
+        } else {
+            uid.to_string()
+        }
+    }
+
+    fn resolve_group(gid: u32) -> String {
+        if let Some(group) = users::get_group_by_gid(gid) {
+            group.name().to_os_string().to_string_lossy().to_string()
+        } else {
+            gid.to_string()
+        }
+    }
+
+    fn lookup_user(&mut self, uid: u32) -> String {
+        self.users.entry(uid).or_insert_with(|| ListOutput::resolve_user(uid)).to_string()
+    }
+
+    fn lookup_group(&mut self, gid: u32) -> String {
+        self.groups.entry(gid).or_insert_with(|| ListOutput::resolve_group(gid)).to_string()
+    }
+
+    fn display_long_file_list(&mut self, entries: &Vec<fs::DirEntry>) {
+        for entry in entries {
+            if let Ok(metadata) = entry.metadata() {
+                self.output_long_list_item(entry.path(), metadata)
+            }
+        }
+    }
+
+    fn output_long_list_item(&mut self, path: std::path::PathBuf, metadata: fs::Metadata) {
+        let mode = metadata.permissions().mode();
+
+        let filename = match path.file_name() {
+            Some(name) => name.to_os_string().into_string().unwrap_or("".to_string()),
+            None => "".to_string(),
+        };
+
+        let uid = metadata.uid();
+        let gid = metadata.gid();
+
+        if let Ok(link) = path.read_link() {
+            println!(
+                "{}\t{}\t{}\t{}\t{}\t{}\t{} -> {}",
+                util::stringify_mode(mode),
+                metadata.nlink(),
+                self.lookup_user(uid),
+                self.lookup_group(gid),
+                metadata.len(),
+                stringify_date(metadata.modified()),
+                filename,
+                link.display()
+            )
+        } else {
+            println!(
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                util::stringify_mode(mode),
+                metadata.nlink(),
+                self.lookup_user(uid),
+                self.lookup_group(gid),
+                metadata.len(),
+                stringify_date(metadata.modified()),
+                filename
+            );
+        }
+    }
+}
+
 fn get_block_size(entry: &fs::DirEntry) -> u64 {
     if let Ok(metadata) = entry.metadata() {
         metadata.blocks()
@@ -85,108 +159,11 @@ fn display_file_list(entries: &Vec<fs::DirEntry>) {
     }
 }
 
-fn output_long_list_item(path: std::path::PathBuf, metadata: fs::Metadata) {
-    let mode = metadata.permissions().mode();
-
-    let filename = match path.file_name() {
-        Some(name) => name.to_os_string().into_string().unwrap_or("".to_string()),
-        None => "".to_string(),
-    };
-
-    if let Ok(link) = path.read_link() {
-        println!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{} -> {}",
-            stringify_mode(mode),
-            metadata.nlink(),
-            metadata.uid(),
-            metadata.gid(),
-            metadata.len(),
-            stringify_date(metadata.modified()),
-            filename,
-            link.display()
-        )
-    } else {
-        println!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-            stringify_mode(mode),
-            metadata.nlink(),
-            metadata.uid(),
-            metadata.gid(),
-            metadata.len(),
-            stringify_date(metadata.modified()),
-            filename
-        );
-    }
-}
-
-fn display_long_file_list(entries: &Vec<fs::DirEntry>) {
-    for entry in entries {
-        if let Ok(metadata) = entry.metadata() {
-            output_long_list_item(entry.path(), metadata);
-        }
-    }
-}
-
 fn stringify_date(time_result: std::io::Result<SystemTime>) -> String {
     match time_result {
-        Ok(system_time) => convert_system_time_to_seconds(system_time),
+        Ok(system_time) => util::convert_system_time_to_seconds(system_time),
         _ => "Unknown".to_string(),
     }
-}
-
-fn convert_system_time_to_seconds(system_time: SystemTime) -> String {
-    let datetime: DateTime<Utc> = system_time.into();
-    datetime.format("%b %d %H:%M").to_string()
-}
-
-fn stringify_mode(mode: u32) -> String {
-    let filetype = match mode & S_IFMT {
-        S_IFSOCK => "s",
-        S_IFBLK => "b",
-        S_IFDIR => "d",
-        S_IFREG => "-",
-        S_IFLNK => "l",
-        S_IFCHR => "c",
-        S_IFIFO => "p",
-        _ => "?",
-    };
-
-    // Only use file permission bits
-    let filemode = mode & 0o777;
-
-    let mask: u32 = 0o7;
-    let mut output = String::new();
-
-    for i in [2u32, 1u32, 0u32].iter() {
-        let permissions = (filemode >> i * 3) & mask;
-
-        output.push_str(if permissions & 0b100u32 > 0u32 {
-            "r"
-        } else {
-            "-"
-        });
-        output.push_str(if permissions & 0b010u32 > 0u32 {
-            "w"
-        } else {
-            "-"
-        });
-        output.push_str(if permissions & 0b001u32 > 0u32 {
-            "x"
-        } else {
-            "-"
-        });
-    }
-
-    format!("{}{}", filetype, output)
-}
-
-/// Check if the given Dir Entry is a dotfile, which are hidden by default
-fn is_dotfile(entry: &fs::DirEntry) -> bool {
-    entry
-        .file_name()
-        .to_str()
-        .map(|s| s.starts_with("."))
-        .unwrap_or(false)
 }
 
 fn read_directory(current_directory: &String, config: &Config) -> io::Result<()> {
@@ -204,7 +181,7 @@ fn read_directory(current_directory: &String, config: &Config) -> io::Result<()>
 
     let mut entries = fs::read_dir(current_directory)?
         .filter_map(|entry| entry.ok())
-        .filter(|entry| !is_dotfile(&entry))
+        .filter(|entry| !util::is_dotfile(&entry))
         .collect::<Vec<fs::DirEntry>>();
 
     // Sort entries by path for lexicographical ordering
@@ -216,10 +193,12 @@ fn read_directory(current_directory: &String, config: &Config) -> io::Result<()>
 
     assert_eq!(entries.len(), 0);
 
+    let mut output = ListOutput::new();
+
     if config.list_output {
         println!("total {}", total_block_count(&files));
-        display_long_file_list(&files);
-        display_long_file_list(&dirs);
+        output.display_long_file_list(&files);
+        output.display_long_file_list(&dirs);
     } else {
         display_file_list(&files);
         display_file_list(&dirs);
