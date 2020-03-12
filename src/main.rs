@@ -59,6 +59,18 @@ impl Config {
     }
 }
 
+fn get_block_size(entry: &fs::DirEntry) -> u64 {
+    if let Ok(metadata) = entry.metadata() {
+        return metadata.blocks();
+    } else {
+        0
+    }
+}
+
+fn total_block_count(entries: &Vec<fs::DirEntry>) -> u64 {
+    entries.into_iter().map(|entry| get_block_size(entry)).fold(0, |acc, x| acc + x)
+}
+
 /// Output a list of DirEntry objects.
 ///
 /// As we are not mutating the list in here, we do not need ownership of the list
@@ -143,10 +155,6 @@ fn read_directory(current_directory: &String, config: &Config) -> io::Result<()>
             println!("{}", &current_directory);
             return Ok(())
         },
-        Ok(metadata) if metadata.is_dir() && config.list_output => {
-            // TODO: Sadly this does not work as we have to calculate this for all the files in the dir
-            println!("total {}", metadata.blocks());
-        },
         Err(err) => {
             // ls skips these directories, but continues operation
             return Err(err)
@@ -169,6 +177,7 @@ fn read_directory(current_directory: &String, config: &Config) -> io::Result<()>
     assert_eq!(entries.len(), 0);
 
     if config.list_output {
+        println!("total {}", total_block_count(&files));
         display_long_file_list(&files);
         display_long_file_list(&dirs);
     } else {
