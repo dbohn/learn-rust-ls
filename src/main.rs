@@ -1,22 +1,22 @@
 extern crate chrono;
 
-use std::{fs, io, env};
-use std::os::unix::fs::{PermissionsExt, MetadataExt};
-use std::time::SystemTime;
-use chrono::DateTime;
 use chrono::offset::Utc;
+use chrono::DateTime;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::time::SystemTime;
+use std::{env, fs, io};
 
 /// POSIX mask to get the file type from the st_mode field
-const S_IFMT : u32 = 0o170000;
+const S_IFMT: u32 = 0o170000;
 
 // st_mode values
-const S_IFSOCK : u32 = 0o140000;
-const S_IFLNK : u32 = 0o120000;
-const S_IFREG : u32 = 0o100000;
-const S_IFBLK : u32 = 0o060000;
-const S_IFDIR : u32 = 0o040000;
-const S_IFCHR : u32 = 0o020000;
-const S_IFIFO : u32 = 0o010000;
+const S_IFSOCK: u32 = 0o140000;
+const S_IFLNK: u32 = 0o120000;
+const S_IFREG: u32 = 0o100000;
+const S_IFBLK: u32 = 0o060000;
+const S_IFDIR: u32 = 0o040000;
+const S_IFCHR: u32 = 0o020000;
+const S_IFIFO: u32 = 0o010000;
 
 /// Parsed representation of the call configuration
 ///
@@ -54,7 +54,7 @@ impl Config {
         Config {
             show_directory_name: directories.len() > 1,
             directories,
-            list_output
+            list_output,
         }
     }
 }
@@ -68,7 +68,10 @@ fn get_block_size(entry: &fs::DirEntry) -> u64 {
 }
 
 fn total_block_count(entries: &Vec<fs::DirEntry>) -> u64 {
-    entries.into_iter().map(|entry| get_block_size(entry)).fold(0, |acc, x| acc + x)
+    entries
+        .into_iter()
+        .map(|entry| get_block_size(entry))
+        .fold(0, |acc, x| acc + x)
 }
 
 /// Output a list of DirEntry objects.
@@ -87,7 +90,7 @@ fn output_long_list_item(path: std::path::PathBuf, metadata: fs::Metadata) {
 
     let filename = match path.file_name() {
         Some(name) => name.to_os_string().into_string().unwrap_or("".to_string()),
-        None => "".to_string()
+        None => "".to_string(),
     };
 
     if let Ok(link) = path.read_link() {
@@ -127,7 +130,7 @@ fn display_long_file_list(entries: &Vec<fs::DirEntry>) {
 fn stringify_date(time_result: std::io::Result<SystemTime>) -> String {
     match time_result {
         Ok(system_time) => convert_system_time_to_seconds(system_time),
-        _ => "Unknown".to_string()
+        _ => "Unknown".to_string(),
     }
 }
 
@@ -145,21 +148,33 @@ fn stringify_mode(mode: u32) -> String {
         S_IFLNK => "l",
         S_IFCHR => "c",
         S_IFIFO => "p",
-        _ => "?"
+        _ => "?",
     };
 
     // Only use file permission bits
     let filemode = mode & 0o777;
 
-    let mask : u32 = 0o7;
+    let mask: u32 = 0o7;
     let mut output = String::new();
 
     for i in [2u32, 1u32, 0u32].iter() {
-        let permissions = (filemode >> i*3) & mask;
+        let permissions = (filemode >> i * 3) & mask;
 
-        output.push_str(if permissions & 0b100u32 > 0u32 {"r"} else {"-"});
-        output.push_str(if permissions & 0b010u32 > 0u32 {"w"} else {"-"});
-        output.push_str(if permissions & 0b001u32 > 0u32 {"x"} else {"-"});
+        output.push_str(if permissions & 0b100u32 > 0u32 {
+            "r"
+        } else {
+            "-"
+        });
+        output.push_str(if permissions & 0b010u32 > 0u32 {
+            "w"
+        } else {
+            "-"
+        });
+        output.push_str(if permissions & 0b001u32 > 0u32 {
+            "x"
+        } else {
+            "-"
+        });
     }
 
     format!("{}{}", filetype, output)
@@ -167,20 +182,24 @@ fn stringify_mode(mode: u32) -> String {
 
 /// Check if the given Dir Entry is a dotfile, which are hidden by default
 fn is_dotfile(entry: &fs::DirEntry) -> bool {
-    entry.file_name().to_str().map(|s| s.starts_with(".")).unwrap_or(false)
+    entry
+        .file_name()
+        .to_str()
+        .map(|s| s.starts_with("."))
+        .unwrap_or(false)
 }
 
 fn read_directory(current_directory: &String, config: &Config) -> io::Result<()> {
     match fs::metadata(current_directory) {
         Ok(metadata) if metadata.is_file() => {
             println!("{}", &current_directory);
-            return Ok(())
-        },
+            return Ok(());
+        }
         Err(err) => {
             // ls skips these directories, but continues operation
-            return Err(err)
-        },
-        _ => ()
+            return Err(err);
+        }
+        _ => (),
     };
 
     let mut entries = fs::read_dir(current_directory)?
@@ -192,8 +211,8 @@ fn read_directory(current_directory: &String, config: &Config) -> io::Result<()>
     entries.sort_by(|a, b| a.path().cmp(&b.path()));
 
     // Split into directories and files
-    let (dirs, files): (Vec<fs::DirEntry>, Vec<fs::DirEntry>) = entries.drain(..)
-        .partition(|entry| entry.path().is_dir());
+    let (dirs, files): (Vec<fs::DirEntry>, Vec<fs::DirEntry>) =
+        entries.drain(..).partition(|entry| entry.path().is_dir());
 
     assert_eq!(entries.len(), 0);
 
